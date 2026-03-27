@@ -2,7 +2,7 @@ const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 const path = require("path");
 const fs = require("fs");
 
-// 平台架构 -> @cometix/codex target triple 映射
+// 平台架构 -> Codex vendor target triple 映射
 const TARGET_TRIPLE_MAP = {
   "darwin-arm64": "aarch64-apple-darwin",
   "darwin-x64": "x86_64-apple-darwin",
@@ -11,17 +11,45 @@ const TARGET_TRIPLE_MAP = {
   "win32-x64": "x86_64-pc-windows-msvc",
 };
 
-// 获取 @cometix/codex vendor 目录下的二进制路径
+const OPENAI_PLATFORM_PACKAGE_MAP = {
+  "darwin-arm64": ["@openai", "codex-darwin-arm64"],
+  "darwin-x64": ["@openai", "codex-darwin-x64"],
+  "linux-arm64": ["@openai", "codex-linux-arm64"],
+  "linux-x64": ["@openai", "codex-linux-x64"],
+  "win32-x64": ["@openai", "codex-win32-x64"],
+};
+
+function getVendorRoots(platform, arch) {
+  const platformArch = `${platform}-${arch}`;
+  const roots = [];
+  const openaiPackagePath = OPENAI_PLATFORM_PACKAGE_MAP[platformArch];
+
+  if (openaiPackagePath) {
+    roots.push(
+      path.join(__dirname, "node_modules", "@openai", "codex", "node_modules", ...openaiPackagePath, "vendor"),
+      path.join(__dirname, "node_modules", ...openaiPackagePath, "vendor"),
+    );
+  }
+
+  // 兼容旧的 @cometix/codex vendor 布局。
+  roots.push(path.join(__dirname, "node_modules", "@cometix", "codex", "vendor"));
+  return roots;
+}
+
+// 获取 vendor 目录下的二进制路径
 function getVendorBinaryPath(platform, arch, subdir, binaryName) {
   const platformArch = `${platform}-${arch}`;
   const targetTriple = TARGET_TRIPLE_MAP[platformArch];
   if (!targetTriple) return null;
 
-  const vendorPath = path.join(
-    __dirname, "node_modules", "@cometix", "codex", "vendor",
-    targetTriple, subdir, binaryName
-  );
-  return fs.existsSync(vendorPath) ? vendorPath : null;
+  for (const vendorRoot of getVendorRoots(platform, arch)) {
+    const vendorPath = path.join(vendorRoot, targetTriple, subdir, binaryName);
+    if (fs.existsSync(vendorPath)) {
+      return vendorPath;
+    }
+  }
+
+  return null;
 }
 
 // 从 npm vendor 复制二进制到 resources/bin/（确保本地始终为最新）
@@ -52,7 +80,7 @@ function getCodexBinaryPath(platform, arch) {
     return localPath;
   }
 
-  // 路径2: npm @cometix/codex/vendor/（直接回退）
+  // 路径2: npm vendor（@openai/codex 为主，@cometix/codex 为回退）
   return getVendorBinaryPath(platform, arch, "codex", binaryName);
 }
 
@@ -542,6 +570,7 @@ module.exports = {
       } else {
         console.error(`❌ Codex binary not found for ${platform}-${arch}`);
         console.error(`   Tried: resources/bin/${platform}-${arch}/${codexBinaryName}`);
+        console.error(`   Tried: node_modules/@openai/codex/.../vendor/.../codex/${codexBinaryName}`);
         console.error(`   Tried: node_modules/@cometix/codex/vendor/.../codex/${codexBinaryName}`);
         process.exit(1);
       }

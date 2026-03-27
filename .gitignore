@@ -30,6 +30,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+.codex-dev/
+.tmp-codex-home/
 
 # Native binaries (downloaded via npm in CI)
 resources/bin/
